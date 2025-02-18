@@ -23,7 +23,7 @@
 export default {
   data() {
     return {
-      message: ''
+      message: '',
     };
   },
   methods: {
@@ -31,16 +31,23 @@ export default {
       // 这里可以添加发送消息的逻辑
       console.log('发送消息:', this.message);
       this.message = '';
+    },
+  },
+  mounted() {
+    // 检查用户是否登录
+    const token = localStorage.getItem('token');
+    if (!token) {
+      // 未登录，跳转到登录页面
+      this.$router.push('/');
     }
-  }
+  },
 };
 </script>
 
 <style scoped>
 .chat-page {
   display: flex;
-  height: 100vh; /* 使用视口高度 */
-  overflow: hidden; /* 隐藏滚动条 */
+  height: 100vh;
 }
 .sidebar {
   width: 300px;
@@ -49,7 +56,6 @@ export default {
   flex-direction: column;
   align-items: center;
   padding: 20px;
-  overflow: hidden; /* 隐藏滚动条 */
 }
 .new-chat-btn {
   margin-bottom: 20px;
@@ -61,12 +67,11 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* 隐藏滚动条 */
 }
 .chat-messages {
   flex: 1;
   padding: 20px;
-  overflow-y: auto; /* 允许聊天内容区域滚动 */
+  overflow-y: auto;
 }
 .chat-input {
   display: flex;

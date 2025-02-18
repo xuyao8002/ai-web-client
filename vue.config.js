@@ -2,6 +2,15 @@ const { defineConfig } = require('@vue/cli-service')
 module.exports = defineConfig({
   transpileDependencies: true,
   devServer: {    
-    webSocketServer: false
+    webSocketServer: false,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000', // 后端服务地址
+        changeOrigin: true,
+        pathRewrite: {
+          '^/api': '', // 去掉路径中的/api
+        },
+      },
+    },	  
   }
 })

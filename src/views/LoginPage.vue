@@ -11,24 +11,47 @@
         <input type="password" id="password" v-model="password" required />
       </div>
       <button type="submit">登录</button>
+      <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
     </form>
   </div>
 </template>
 
 <script>
+import axios from 'axios';
+
 export default {
   data() {
     return {
       username: '',
-      password: ''
+      password: '',
+      errorMessage: '', // 错误提示信息
     };
   },
   methods: {
-    login() {
-      // 这里可以添加登录逻辑
-      this.$router.push('/chat');
-    }
-  }
+    async login() {
+      this.errorMessage = ''; // 清空错误提示
+      try {
+        const response = await axios.post('/api/auth/login', {
+          username: this.username,
+          password: this.password,
+        });
+
+        if (response.data.token) {
+          // 登录成功，保存token到localStorage
+          localStorage.setItem('token', response.data.token);
+          // 跳转到聊天页面
+          this.$router.push('/chat');
+        }
+      } catch (error) {
+        // 登录失败，显示错误提示
+        if (error.response && error.response.data.message) {
+          this.errorMessage = error.response.data.message;
+        } else {
+          this.errorMessage = '登录失败，请稍后重试';
+        }
+      }
+    },
+  },
 };
 </script>
 
@@ -38,12 +61,15 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh; /* 使用视口高度 */
-  overflow: hidden; /* 隐藏滚动条 */
+  height: 100vh;
 }
 form {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.error-message {
+  color: red;
+  margin-top: 10px;
 }
 </style>
