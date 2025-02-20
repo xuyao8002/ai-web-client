@@ -5,10 +5,10 @@ module.exports = defineConfig({
     webSocketServer: false,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000', // 后端服务地址
+        target: 'http://192.168.14.137:5000', // 后端服务地址
         changeOrigin: true,
         pathRewrite: {
-          '^/api': '', // 去掉路径中的/api
+          '^/api': '/', // 去掉路径中的/api
         },
       },
     },	  

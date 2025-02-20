@@ -37,8 +37,9 @@ export default {
         });
 
         if (response.data.token) {
-          // 登录成功，保存token到localStorage
+          // 登录成功，保存token和用户信息到localStorage
           localStorage.setItem('token', response.data.token);
+          localStorage.setItem('user', JSON.stringify(response.data.user));
           // 跳转到聊天页面
           this.$router.push('/chat');
         }
