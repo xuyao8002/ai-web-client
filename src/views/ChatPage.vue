@@ -1,9 +1,10 @@
 <template>
   <div class="chat-page">
     <div class="sidebar">
-      <button class="new-chat-btn">新建聊天</button>
+      <button class="new-chat-btn" @click="newChat">新建聊天</button>
       <div class="chat-list">
-        <div v-for="chat in chatList" :key="chat._id" class="chat-item">
+        <div v-for="chat in chatList" :key="chat._id" class="chat-item" :class="{ active: chat._id === currentChatId }"
+          @click="selectChat(chat._id)">
           {{ chat.title }}
         </div>
       </div>
@@ -44,8 +45,10 @@
     </div>
     </div>
     <div class="chat-container">
-      <div class="chat-messages">
-        <!-- 聊天内容将显示在这里 -->
+      <div class="chat-messages" ref="chatMessages">
+        <div v-for="(message, index) in messages" :key="index" :class="message.position">
+          {{ message.content }}
+        </div>
       </div>
       <div class="chat-input">
         <textarea v-model="message" placeholder="输入消息..." rows="4"></textarea>
@@ -58,8 +61,8 @@
           </select>
         </div>
       </div>
-    </div>
-  </div>
+    </div>  
+</div>
 </template>
 
 <script>
@@ -81,6 +84,10 @@ export default {
         apiKey: '', // 设置弹框中的apiKey
         baseUrl: '', // 设置弹框中的baseUrl
       },
+      messages: [], // 聊天记录
+      eventSource: null, // SSE 连接
+      isStreaming: false, // 是否正在接收流式数据i
+      currentChatId: null, // 当前聊天记录的 ID
     };
   },
   watch: {
@@ -91,8 +98,52 @@ export default {
       },
       immediate: true,
     },
+    // 监听 messages 变化，确保每次更新后滚动到底部
+    messages() {
+      this.scrollToBottom();
+    }, 
   },
   methods: {
+    // 新建聊天
+    newChat() {
+      this.currentChatId = null; // 清空当前聊天 ID
+      this.messages = []; // 清空当前聊天记录
+      this.message = ''; // 清空输入框
+    },
+    // 选择聊天记录
+    selectChat(chatId) {
+      this.currentChatId = chatId;
+      const selectedChat = this.chatList.find((chat) => chat._id === chatId);
+      if (selectedChat) {
+        if(!selectedChat.messages){
+          const token = localStorage.getItem('token');
+          if (!token) { 
+            this.$router.push('/'); // 未登录，跳转到登录页面
+            return;
+          }
+ 
+          axios.get('/api/message/get', {
+            params: {
+              id: `${selectedChat._id}`	
+            },
+            headers: {
+              Authorization: `Bearer ${token}`, // 传递token
+            },
+          }).then(response => {
+            selectedChat.messages = response.data;
+            this.messages = selectedChat.messages.map((msg) => ({
+            content: msg.content,
+            position: msg.role === 'user' ? 'right' : 'left', // 用户消息在右侧，AI 回复在左侧
+        }));
+          });
+        }else{
+          this.messages = selectedChat.messages.map((msg) => ({
+          content: msg.content,
+          position: msg.role === 'user' ? 'right' : 'left', // 用户消息在右侧，AI 回复在左侧
+        }));
+        }
+      }
+    },  
     // 加载聊天记录
     async loadChatList() {
       try {
@@ -223,11 +274,96 @@ export default {
         alert('请先去设置中配置api_key和base_url');
         return;
       }
+      if (!this.message.trim()) return;
+      
+      // 如果当前没有聊天记录，创建一条新的聊天记录
+      if (!this.currentChatId) {
+        const newChat = {
+          _id: -1, // 使用时间戳作为唯一 ID
+          title: this.message.slice(0, 20), // 取消息的前 20 个字符作为标题
+          messages: [], // 初始化消息列表
+        };
+        this.chatList.unshift(newChat); // 添加到 chatList 最上面
+        this.currentChatId = newChat._id; // 设置为当前聊天记录
+      }
 
-      // 这里可以添加发送消息的逻辑
-      console.log('发送消息:', this.message);
-      console.log('选择的模型:', this.selectedModel);
+      // 将用户消息添加到聊天记录
+      //this.messages.push({ content: this.message, position: 'right' });
+      
+      // 将用户消息添加到当前聊天记录
+      const currentChat = this.chatList.find((chat) => chat._id === this.currentChatId);
+      if (currentChat) {
+        currentChat.messages.push({ content: this.message, role: 'user' });
+        this.messages.push({ content: this.message, position: 'right' });
+      }
+
+      // 获取 token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('用户未登录');
+        this.$router.push('/');
+        return;
+      }
+      // 初始化 AI 回复的消息
+      const aiMessage = { content: '', role: 'assistant' }; // AI 回复
+      currentChat.messages.push(aiMessage); // 将 AI 回复添加到聊天记录
+      this.messages.push({ content: '', position: 'left' });
+      this.isStreaming = true;
+
+      //if(!this.currentChatId){
+//	this.currentChatId = -1;
+  //    }
+      // 调用后端 /message/chat 接口，将 token 作为查询参数
+      this.eventSource = new EventSource(
+        `/api/message/chat?id=${this.currentChatId}&model_id=${this.selectedModel}&content=${encodeURIComponent(
+          this.message
+        )}&token=${token}`
+      );
+
+      this.eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'reasoning' || data.type === 'answer') {
+          // 将 AI 回复添加到聊天记录
+          const lastMessage = this.messages[this.messages.length - 1];
+//	console.log('message: ' + lastMessage);
+          lastMessage.content += data.content;
+          // 强制更新视图
+         // this.$forceUpdate();
+       
+          // 更新当前聊天记录的 AI 回复
+          if (currentChat) {
+            const lastChatMessage = currentChat.messages[currentChat.messages.length - 1];
+            lastChatMessage.content += data.content; // 直接追加到 AI 回复中
+          }
+          // 滚动到底部
+          this.scrollToBottom();
+        } else if (data.type === 'error') {
+          console.error('SSE 错误:', data.message);
+        } else if(data.type === 'id'){
+          this.currentChatId = data.content;
+          this.chatList[0]._id = data.content;
+        }
+      };
+
+      this.eventSource.onerror = () => {
+        console.error('SSE 连接错误');
+        this.eventSource.close();
+        this.isStreaming = false;
+      };
+      // 清空多行文本框
       this.message = '';
+      // 滚动到底部
+      this.scrollToBottom();
+    },
+    // 滚动到底部
+    scrollToBottom() {
+      this.$nextTick(() => {
+        const chatMessages = this.$refs.chatMessages;
+        if (chatMessages) {
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      });
     },
     // 切换个人信息弹窗
     toggleProfile() {
@@ -285,6 +421,12 @@ export default {
       this.loadUserModels();
     }
   },
+  beforeUnmount() {
+    // 组件销毁时关闭 SSE 连接
+    if (this.eventSource) {
+      this.eventSource.close();
+    }
+  },
 };
 </script>
 
@@ -300,7 +442,6 @@ export default {
   flex-direction: column;
   align-items: center;
   padding: 20px;
-  position: relative; /* 为弹窗定位提供参考 */
 }
 .new-chat-btn {
   margin-bottom: 20px;
@@ -318,11 +459,14 @@ export default {
 .chat-item:hover {
   background-color: #eee;
 }
+.chat-item.active {
+  background-color: #007bff;
+  color: white;
+}
 .sidebar-footer {
   margin-top: auto;
   width: 100%;
   text-align: center;
-  position: relative; /* 为弹窗定位提供参考 */
 }
 .sidebar-footer p {
   cursor: pointer;
@@ -340,6 +484,28 @@ export default {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-messages .left {
+  align-self: flex-start;
+  background-color: #f1f1f1;
+  padding: 10px;
+  border-radius: 10px;
+  max-width: 70%;
+  white-space: pre-wrap; /* 允许自动换行 */
+  word-wrap: break-word; /* 长单词或 URL 自动换行 */
+}
+.chat-messages .right {
+  align-self: flex-end;
+  background-color: #007bff;
+  color: white;
+  padding: 10px;
+  border-radius: 10px;
+  max-width: 70%;
+  white-space: pre-wrap; /* 允许自动换行 */
+  word-wrap: break-word; /* 长单词或 URL 自动换行 */
 }
 .chat-input {
   display: flex;
@@ -383,7 +549,7 @@ select {
   cursor: pointer;
 }
 .profile-modal,
-.settings-modal {
+.settings-modal{
   position: fixed; /* 使用fixed定位，确保弹窗不受父元素限制 */
   top: 0;
   left: 0;
